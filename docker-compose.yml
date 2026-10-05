@@ -1,0 +1,64 @@
+# Fleet Ops — local infrastructure
+# Kafka (KRaft mode, no ZooKeeper) + a pinned Docker network
+# that your ROS 2 dev container joins.
+#
+# Usage:
+#   docker compose up -d         # starts Kafka, creates the fleet-net network + topics
+#   docker compose logs -f kafka # watch Kafka come up
+#   docker exec fleet-kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --list
+#   docker compose down          # stop everything (add -v to also wipe Kafka data)
+
+name: fleet-ops
+
+services:
+  kafka:
+    image: apache/kafka:3.7.0
+    container_name: fleet-kafka
+    ports:
+      - "9092:9092" # host access for debugging tools on your Mac
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:29092,CONTROLLER://:9093,PLAINTEXT_HOST://:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    networks:
+      - fleet-net
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --list >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 6
+      start_period: 20s
+
+  # Creates the topics the telemetry bridge expects, then exits.
+  kafka-init:
+    image: apache/kafka:3.7.0
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: >
+      bash -c "
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists --topic fleet.telemetry     --partitions 6 --replication-factor 1 &&
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists --topic fleet.telemetry.dlq --partitions 3 --replication-factor 1 &&
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists --topic fleet.alerts         --partitions 3 --replication-factor 1 &&
+        echo '--- topics ready ---' &&
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --list
+      "
+    networks:
+      - fleet-net
+
+networks:
+  fleet-net:
+    name: fleet-net # pinned name so the VS Code dev container can join it
+
+volumes:
+  kafka-data:

@@ -1,0 +1,64 @@
+# The ROS <-> Kafka bridge. Same image as the fleet, different launch.
+# Owns the OT/cloud boundary: subscribes to /robot_N/telemetry via DDS
+# (through the discovery server), produces to Kafka, and consumes
+# fleet.commands back into /robot_N/command.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bridge
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bridge
+  template:
+    metadata:
+      labels:
+        app: bridge
+    spec:
+      containers:
+      - name: bridge
+        image: fleet-ros:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        # Prometheus scrape target (see bridge's metrics_port param).
+        # A ServiceMonitor / scrape config gets wired up with the
+        # Prometheus deployment; the port just needs to be declared here.
+        - name: metrics
+          containerPort: 8001
+          protocol: TCP
+        command: ["/bin/bash", "-c"]
+        args: ["source /opt/fleet_ws/install/setup.bash && exec ros2 launch fleet_bridge bridge.launch.py"]
+        env:
+        - name: ROS_DOMAIN_ID
+          value: "42"
+        - name: ROS_DISCOVERY_SERVER
+          # NOTE: must be an IP literal, not the DNS name — this Fast DDS
+          # version parses ROS_DISCOVERY_SERVER as X.X.X.X and fails on
+          # hostnames (see IP_LOCATOR Error in pod logs). K8s injects
+          # DISCOVERY_SERVER_SERVICE_HOST (the Service ClusterIP) automatically.
+          value: "$(DISCOVERY_SERVER_SERVICE_HOST):11811"
+        - name: KAFKA_BOOTSTRAP
+          value: "kafka:9092"
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        resources:
+          requests:
+            cpu: "250m"
+            memory: "512Mi"
+---
+# ClusterIP service exposing the bridge's Prometheus metrics endpoint as
+# stable DNS (bridge-metrics:8001) so Prometheus can scrape it. The bridge
+# Deployment already declares containerPort 8001 (name: metrics).
+apiVersion: v1
+kind: Service
+metadata:
+  name: bridge-metrics
+spec:
+  selector:
+    app: bridge
+  ports:
+  - name: metrics
+    port: 8001
+    targetPort: 8001
+    protocol: TCP

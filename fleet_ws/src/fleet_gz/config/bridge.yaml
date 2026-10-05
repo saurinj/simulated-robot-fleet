@@ -1,0 +1,17 @@
+# ros_gz_bridge parameter_bridge configuration.
+#
+# direction: ROS_TO_GZ bridges a ROS 2 topic into Gazebo Transport;
+#            GZ_TO_ROS bridges a Gazebo Transport topic into ROS 2.
+# The DiffDrive plugin (see worlds/test_world.sdf) listens for velocity
+# commands on /cmd_vel (gz.msgs.Twist) and publishes odometry on /odom
+# (gz.msgs.Odometry).
+- ros_topic_name: "/cmd_vel"
+  gz_topic_name: "/cmd_vel"
+  ros_type_name: "geometry_msgs/msg/Twist"
+  gz_type_name: "gz.msgs.Twist"
+  direction: ROS_TO_GZ
+- ros_topic_name: "/odom"
+  gz_topic_name: "/odom"
+  ros_type_name: "nav_msgs/msg/Odometry"
+  gz_type_name: "gz.msgs.Odometry"
+  direction: GZ_TO_ROS

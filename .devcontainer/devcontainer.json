@@ -1,0 +1,33 @@
+{
+  // Fleet Ops — ROS 2 Humble dev environment for macOS.
+  // This container IS Ubuntu 22.04, so ROS 2 behaves exactly like native Linux.
+  // IMPORTANT: run `docker compose up -d` on your Mac FIRST (creates the
+  // fleet-net network), then "Reopen in Container" in VS Code.
+  "name": "fleet-ops ROS 2 Humble",
+  "image": "osrf/ros:humble-desktop",
+  "runArgs": ["--network=fleet-net"],
+  "containerEnv": {
+    // Isolates your DDS traffic from any other ROS 2 users on the network.
+    "ROS_DOMAIN_ID": "42",
+    // How your bridge code reaches Kafka from inside this container.
+    "KAFKA_BOOTSTRAP": "kafka:29092"
+  },
+  "remoteUser": "root",
+  "mounts": [
+    // Your ROS 2 workspace lives on the Mac; editable in VS Code, visible here.
+    // Create it first: mkdir -p fleet_ws/src
+    "source=${localWorkspaceFolder}/fleet_ws,target=/root/fleet_ws,type=bind,consistency=cached"
+  ],
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-vscode.cpptools",
+        "ms-azuretools.vscode-docker"
+      ]
+    }
+  },
+  // Runs once when the container is first created.
+  "postCreateCommand": "apt-get update -qq && apt-get install -y -qq python3-pip >/dev/null && pip3 install -q kafka-python && grep -q 'humble/setup.bash' /root/.bashrc || echo 'source /opt/ros/humble/setup.bash' >> /root/.bashrc && echo 'dev container ready: try `ros2 topic list`'",
+  "postStartCommand": "echo 'ROS_DOMAIN_ID=42 | Kafka at kafka:29092'"
+}

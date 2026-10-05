@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fleet Ops Dashboard</title>
+<style>
+  :root {
+    --bg: #0d1117; --card: #161b22; --border: #30363d;
+    --text: #e6edf3; --muted: #8b949e;
+    --green: #3fb950; --amber: #d29922; --red: #f85149; --gray: #6e7681;
+  }
+  * { box-sizing: border-box; }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system,
+         "Segoe UI", Helvetica, Arial, sans-serif; margin: 0; padding: 24px; }
+  header { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
+  header h1 { font-size: 22px; margin: 0; }
+  #conn { display: flex; align-items: center; gap: 8px; color: var(--muted);
+          font-size: 14px; margin-left: auto; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--gray); }
+  .dot.live { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  h2 { font-size: 15px; color: var(--muted); text-transform: uppercase;
+       letter-spacing: 1px; margin: 28px 0 12px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+          gap: 16px; }
+  .card { background: var(--card); border: 1px solid var(--border);
+          border-radius: 10px; padding: 16px; }
+  .card-top { display: flex; align-items: center; justify-content: space-between;
+              margin-bottom: 12px; }
+  .card-top .name { font-weight: 600; font-size: 16px; }
+  .badge { font-size: 12px; font-weight: 600; padding: 4px 10px;
+           border-radius: 20px; text-transform: uppercase; letter-spacing: .5px; }
+  .badge.OK { background: rgba(63,185,80,.15); color: var(--green); }
+  .badge.DEGRADED { background: rgba(210,153,34,.15); color: var(--amber); }
+  .badge.FAULT { background: rgba(248,81,73,.15); color: var(--red); }
+  .badge.STALE, .badge.OFFLINE, .badge.unknown { background: rgba(110,118,129,.15);
+          color: var(--gray); }
+  .row { display: flex; justify-content: space-between; font-size: 14px;
+         margin: 6px 0; color: var(--muted); }
+  .row b { color: var(--text); font-weight: 500; }
+  .bar { height: 8px; background: #21262d; border-radius: 4px; margin: 4px 0 10px;
+         overflow: hidden; }
+  .bar > div { height: 100%; border-radius: 4px; transition: width .5s; }
+  .feed { display: flex; flex-direction: column; gap: 8px; max-height: 420px;
+          overflow-y: auto; }
+  .alert { background: var(--card); border: 1px solid var(--border);
+           border-left: 4px solid var(--gray); border-radius: 6px;
+           padding: 10px 14px; font-size: 14px; }
+  .alert.critical { border-left-color: var(--red); }
+  .alert.warning { border-left-color: var(--amber); }
+  .alert.recovered { border-left-color: var(--green); }
+  .alert .meta { color: var(--muted); font-size: 12px; margin-bottom: 2px; }
+  .empty { color: var(--muted); font-size: 14px; padding: 12px 0; }
+  .cmd-row { display: flex; gap: 8px; margin-top: 10px; }
+  .cmd-row button { flex: 1; background: #21262d; color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px; padding: 7px 0;
+    font-size: 13px; cursor: pointer; }
+  .cmd-row button:hover { background: #30363d; }
+  .cmd-row button:active { transform: translateY(1px); }
+</style>
+</head>
+<body>
+<header>
+  <h1>🤖 Fleet Ops</h1>
+  <div id="conn"><span class="dot" id="conn-dot"></span><span id="conn-text">connecting…</span></div>
+</header>
+
+<h2>Robots <span id="robot-count"></span></h2>
+<div id="robots" class="grid"><div class="empty">Waiting for telemetry…</div></div>
+
+<h2>Alerts</h2>
+<div id="alerts" class="feed"><div class="empty">No alerts yet.</div></div>
+
+<script>
+const $ = id => document.getElementById(id);
+
+function battColor(p) { return p < 15 ? 'var(--red)' : p < 30 ? 'var(--amber)' : 'var(--green)'; }
+
+function card(r) {
+  const batt = r.battery_pct ?? 0;
+  const temp = r.temperature_c ?? 0;
+  const age = r.last_seen_age_s ?? 999;
+  const ago = age > 999 ? 'never' : age < 1.5 ? 'just now' : age.toFixed(0) + 's ago';
+  return `<div class="card">
+    <div class="card-top">
+      <span class="name">${r.robot_id}</span>
+      <span class="badge ${r.status_label}">${r.status_label}</span>
+    </div>
+    <div class="row"><span>Battery</span><b>${batt.toFixed(1)}%</b></div>
+    <div class="bar"><div style="width:${batt}%;background:${battColor(batt)}"></div></div>
+    <div class="row"><span>Temperature</span><b>${temp.toFixed(1)} °C</b></div>
+    <div class="row"><span>Position</span><b>(${(r.x??0).toFixed(1)}, ${(r.y??0).toFixed(1)})</b></div>
+    <div class="row"><span>Updated</span><b>${ago}</b></div>
+    <div class="cmd-row">
+      <button onclick="sendCommand('${r.robot_id}','inject_fault')">⚠ Inject fault</button>
+      <button onclick="sendCommand('${r.robot_id}','clear_fault')">✓ Clear fault</button>
+    </div>
+    <div class="cmd-row">
+      <select id="cfg-param-${r.robot_id}">
+        <option value="publish_rate_hz">publish_rate_hz</option>
+        <option value="fault_probability">fault_probability</option>
+        <option value="recover_probability">recover_probability</option>
+      </select>
+      <input id="cfg-value-${r.robot_id}" type="number" step="any" placeholder="value" style="width:80px">
+      <button onclick="sendConfig('${r.robot_id}')">⤒ Push config</button>
+    </div>
+  </div>`;
+}
+
+function alertRow(a) {
+  const t = new Date(a.ts * 1000).toLocaleTimeString();
+  return `<div class="alert ${a.severity}">
+    <div class="meta">${t} · ${a.robot_id} · ${a.rule}</div>
+    <div>${a.message}</div>
+  </div>`;
+}
+
+async function sendCommand(robot_id, command) {
+  try {
+    const res = await fetch(`/api/robots/${robot_id}/command`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({command})
+    });
+    if (!res.ok) console.error('command failed:', await res.text());
+    // No explicit UI update needed: the next 1s poll reflects the new state.
+  } catch (e) { console.error('command failed:', e); }
+}
+
+async function sendConfig(robot_id) {
+  const param_name = document.getElementById(`cfg-param-${robot_id}`).value;
+  const value = parseFloat(document.getElementById(`cfg-value-${robot_id}`).value);
+  if (!isFinite(value)) { console.error('config push needs a numeric value'); return; }
+  try {
+    const res = await fetch(`/api/robots/${robot_id}/command`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({command: 'set_param', param_name, value})
+    });
+    if (!res.ok) console.error('config push failed:', await res.text());
+    // Effect is visible on the next telemetry poll (rate change) or in
+    // robot logs: "OTA config: <param> -> <value>".
+  } catch (e) { console.error('config push failed:', e); }
+}
+
+async function tick() {  try {
+    const [robotsRes, alertsRes] = await Promise.all([
+      fetch('/api/robots'), fetch('/api/alerts?limit=30')
+    ]);
+    if (!robotsRes.ok) throw new Error('api error');
+    const robots = (await robotsRes.json()).robots;
+    const alerts = (await alertsRes.json()).alerts;
+    $('conn-dot').className = 'dot live';
+    $('conn-text').textContent = 'live';
+    $('robot-count').textContent = `(${robots.length})`;
+    $('robots').innerHTML = robots.length ? robots.map(card).join('')
+      : '<div class="empty">Waiting for telemetry…</div>';
+    $('alerts').innerHTML = alerts.length ? alerts.map(alertRow).join('')
+      : '<div class="empty">No alerts yet.</div>';
+  } catch (e) {
+    $('conn-dot').className = 'dot';
+    $('conn-text').textContent = 'disconnected';
+  }
+}
+
+tick();
+setInterval(tick, 1000);
+</script>
+</body>
+</html>

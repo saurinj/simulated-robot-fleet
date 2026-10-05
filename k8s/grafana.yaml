@@ -1,0 +1,197 @@
+# Grafana: visualization only. It never touches the bridge — it sends PromQL
+# queries to Prometheus (provisioned as the default datasource) and renders
+# the results. The "Fleet Bridge — Pipeline Health" dashboard is
+# auto-provisioned from the fleet-dashboards ConfigMap.
+#
+# Local demo credentials: admin/admin (change for anything real).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+data:
+  prometheus.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        url: http://prometheus:9090
+        isDefault: true
+        editable: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-provider
+data:
+  provider.yaml: |
+    apiVersion: 1
+    providers:
+      - name: 'fleet'
+        orgId: 1
+        folder: ''
+        type: file
+        disableDeletion: false
+        updateIntervalSeconds: 10
+        allowUiUpdates: true
+        options:
+          path: /var/lib/grafana/dashboards
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fleet-dashboards
+data:
+  fleet-bridge.json: |
+    {
+      "uid": "fleet-bridge",
+      "title": "Fleet Bridge \u2014 Pipeline Health",
+      "tags": ["fleet", "prometheus"],
+      "timezone": "browser",
+      "refresh": "5s",
+      "time": {"from": "now-30m", "to": "now"},
+      "schemaVersion": 39,
+      "version": 1,
+      "panels": [
+        {
+          "id": 1,
+          "type": "timeseries",
+          "title": "Telemetry throughput (msg/s)",
+          "description": "Messages per second acked by Kafka. Expect ~40/s for a 5-robot fleet at 8 Hz.",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+          "targets": [
+            {"refId": "A", "expr": "rate(fleet_bridge_telemetry_forwarded_total[1m])", "legendFormat": "forwarded"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "msgs/s", "min": 0}, "overrides": []}
+        },
+        {
+          "id": 2,
+          "type": "timeseries",
+          "title": "Queue depth",
+          "description": "Depth of the ROS->Kafka telemetry queue. Rising = backpressure building; drops start at 10000.",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+          "targets": [
+            {"refId": "A", "expr": "fleet_bridge_queue_depth", "legendFormat": "depth"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "short", "min": 0}, "overrides": []}
+        },
+        {
+          "id": 3,
+          "type": "timeseries",
+          "title": "Drops & failures per second",
+          "description": "Dropped = shed load (queue full). Failed = Kafka lost it, split by stage.",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+          "targets": [
+            {"refId": "A", "expr": "rate(fleet_bridge_telemetry_dropped_total[1m])", "legendFormat": "dropped"},
+            {"refId": "B", "expr": "sum by (stage) (rate(fleet_bridge_telemetry_failed_total[1m]))", "legendFormat": "failed: {{stage}}"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "msgs/s", "min": 0}, "overrides": []}
+        },
+        {
+          "id": 4,
+          "type": "timeseries",
+          "title": "Dead-letter per second by reason",
+          "description": "Messages routed to fleet.telemetry.dlq instead of crashing the bridge.",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+          "targets": [
+            {"refId": "A", "expr": "sum by (reason) (rate(fleet_bridge_dlq_total[1m]))", "legendFormat": "dlq: {{reason}}"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "msgs/s", "min": 0}, "overrides": []}
+        },
+        {
+          "id": 5,
+          "type": "timeseries",
+          "title": "Commands forwarded / rejected",
+          "description": "Rejected commands by reason. Spikes in unknown_robot mean something is probing the fleet.",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+          "targets": [
+            {"refId": "A", "expr": "rate(fleet_bridge_commands_forwarded_total[1m])", "legendFormat": "forwarded"},
+            {"refId": "B", "expr": "sum by (reason) (rate(fleet_bridge_commands_invalid_total[1m]))", "legendFormat": "invalid: {{reason}}"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "ops/s", "min": 0}, "overrides": []}
+        },
+        {
+          "id": 6,
+          "type": "stat",
+          "title": "Bridge target up",
+          "description": "Prometheus scrape health for the bridge. 0 = the endpoint is unreachable.",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+          "targets": [
+            {"refId": "A", "expr": "up{job=\"fleet-bridge\"}", "legendFormat": "up"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "none", "min": 0, "max": 1}, "overrides": []}
+        }
+      ]
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      # The grafana/grafana image runs as UID 472; fsGroup makes the
+      # emptyDir data volume writable for it.
+      securityContext:
+        fsGroup: 472
+      containers:
+      - name: grafana
+        image: grafana/grafana:13.2.1
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: http
+          containerPort: 3000
+          protocol: TCP
+        env:
+        - name: GF_SECURITY_ADMIN_USER
+          value: "admin"
+        - name: GF_SECURITY_ADMIN_PASSWORD
+          value: "admin"
+        - name: GF_USERS_ALLOW_SIGN_UP
+          value: "false"
+        volumeMounts:
+        - name: datasources
+          mountPath: /etc/grafana/provisioning/datasources
+        - name: dashboard-provider
+          mountPath: /etc/grafana/provisioning/dashboards
+        - name: dashboards
+          mountPath: /var/lib/grafana/dashboards
+        - name: data
+          mountPath: /var/lib/grafana
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "256Mi"
+      volumes:
+      - name: datasources
+        configMap:
+          name: grafana-datasources
+      - name: dashboard-provider
+        configMap:
+          name: grafana-dashboard-provider
+      - name: dashboards
+        configMap:
+          name: fleet-dashboards
+      - name: data
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+spec:
+  selector:
+    app: grafana
+  ports:
+  - name: http
+    port: 3000
+    targetPort: 3000
+    protocol: TCP

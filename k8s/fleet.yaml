@@ -1,0 +1,39 @@
+# The 5 simulated robots. One pod runs the whole fleet launch;
+# the bridge (separate Deployment) discovers them via the discovery server.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fleet
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fleet
+  template:
+    metadata:
+      labels:
+        app: fleet
+    spec:
+      containers:
+      - name: fleet
+        image: fleet-ros:latest
+        # Critical with kind: :latest defaults to Always, which would try
+        # Docker Hub instead of the image you loaded with `kind load`.
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/bash", "-c"]
+        args: ["source /opt/fleet_ws/install/setup.bash && exec ros2 launch fleet_bot fleet.launch.py"]
+        env:
+        - name: ROS_DOMAIN_ID
+          value: "42"
+        - name: ROS_DISCOVERY_SERVER
+          # NOTE: must be an IP literal, not the DNS name — this Fast DDS
+          # version parses ROS_DISCOVERY_SERVER as X.X.X.X and fails on
+          # hostnames (see IP_LOCATOR Error in pod logs). K8s injects
+          # DISCOVERY_SERVER_SERVICE_HOST (the Service ClusterIP) automatically.
+          value: "$(DISCOVERY_SERVER_SERVICE_HOST):11811"
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        resources:
+          requests:
+            cpu: "250m"
+            memory: "512Mi"

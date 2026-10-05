@@ -1,0 +1,52 @@
+# Fast DDS Discovery Server.
+#
+# Why this exists: pod networks (kind) don't do DDS multicast, so the
+# default Simple Discovery can't find peers across pods. Every ROS node
+# in the fleet sets ROS_DISCOVERY_SERVER=discovery-server:11811 and
+# registers with this server instead. This is the standard ROS 2 answer
+# for Kubernetes / cloud networks.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: discovery-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: discovery-server
+  template:
+    metadata:
+      labels:
+        app: discovery-server
+    spec:
+      containers:
+      - name: discovery-server
+        # Reuses the fleet image so kind doesn't need a separate pull.
+        image: fleet-ros:latest
+        imagePullPolicy: IfNotPresent
+        env:
+          - name: ROS_DOMAIN_ID
+            value: "42"
+        command: ["/bin/bash", "-c"]
+        args: ["source /opt/ros/humble/setup.bash && exec fastdds discovery -i 0 -p 11811"]
+        ports:
+        - containerPort: 11811
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: discovery-server
+spec:
+  selector:
+    app: discovery-server
+  ports:
+  # NOTE: the Fast DDS discovery server listens on UDP (see its startup log:
+  # "Server Addresses: UDPv4:[0.0.0.0]:11811"). A port declared without a
+  # protocol defaults to TCP, which silently blackholes all discovery traffic.
+  - port: 11811
+    targetPort: 11811
+    protocol: UDP

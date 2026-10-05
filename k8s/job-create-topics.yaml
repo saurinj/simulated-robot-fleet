@@ -1,0 +1,27 @@
+# Creates the fleet topics once Kafka is up. Waits for the broker itself,
+# so no initContainer or manual ordering is needed.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: create-topics
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: create-topics
+        image: apache/kafka:3.7.0
+        command: ["/bin/bash", "-c"]
+        args:
+        - |
+          set -e
+          echo "waiting for kafka..."
+          until /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --list >/dev/null 2>&1; do
+            sleep 2
+          done
+          for t in fleet.telemetry fleet.telemetry.dlq fleet.alerts fleet.commands; do
+            /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 \
+              --create --if-not-exists --topic "$t" \
+              --partitions 1 --replication-factor 1
+          done
+          echo "topics ready"

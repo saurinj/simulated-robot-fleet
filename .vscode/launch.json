@@ -1,0 +1,92 @@
+{
+  "version": "0.2.0",
+  // Fleet project debug configs. VS Code is attached to the ROS 2 dev container,
+  // so everything here runs INSIDE the container.
+  //
+  // SETUP (once, in a container terminal):
+  //   pip install debugpy
+  //   # optional but recommended, so breakpoints set in src/ bind to running code:
+  //   cd /root/fleet_ws && colcon build --symlink-install --packages-select fleet_msgs fleet_bot fleet_bridge
+  //
+  // INSTALL: save this file as .vscode/launch.json at your repo root
+  //          (~/Documents/simulated-robot-fleet) and debug_ros.py next to it.
+  "configurations": [
+    {
+      "name": "Fleet: Launch bridge_node",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/.vscode/debug_ros.py",
+      "args": ["/root/fleet_ws/install/fleet_bridge/lib/fleet_bridge/bridge_node"],
+      "console": "integratedTerminal",
+      "env": {
+        "ROS_DOMAIN_ID": "42",
+        "KAFKA_BOOTSTRAP": "kafka:29092"
+      }
+    },
+    {
+      "name": "Fleet: Launch robot_node",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/.vscode/debug_ros.py",
+      "args": [
+        "/root/fleet_ws/install/fleet_bot/lib/fleet_bot/robot_node",
+        "--ros-args", "-p", "robot_id:=${input:robotId}"
+      ],
+      "console": "integratedTerminal",
+      "env": {
+        "ROS_DOMAIN_ID": "42",
+        "KAFKA_BOOTSTRAP": "kafka:29092"
+      }
+    },
+    {
+      "name": "Fleet: Launch dashboard",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": ["app:app", "--port", "8000"],
+      "cwd": "${workspaceFolder}/dashboard",
+      "console": "integratedTerminal",
+      "env": {
+        "KAFKA_BOOTSTRAP": "kafka:29092"
+      }
+      // NOTE: needs dashboard deps where it runs: pip install -r dashboard/requirements.txt
+      // If you run the dashboard in its own docker container instead, use the
+      // "Attach to dashboard" config below with debugpy listening in that container.
+    },
+    {
+      "name": "Fleet: Attach to bridge_node (:5678)",
+      "type": "debugpy",
+      "request": "attach",
+      "connect": { "host": "127.0.0.1", "port": 5678 }
+      // In a SOURCED terminal, run:
+      // python3 -m debugpy --listen 5678 --wait-for-client /root/fleet_ws/install/fleet_bridge/lib/fleet_bridge/bridge_node
+      // then F5 this config.
+    },
+    {
+      "name": "Fleet: Attach to robot_node (:5679)",
+      "type": "debugpy",
+      "request": "attach",
+      "connect": { "host": "127.0.0.1", "port": 5679 }
+      // In a SOURCED terminal, run:
+      // python3 -m debugpy --listen 5679 --wait-for-client /root/fleet_ws/install/fleet_bot/lib/fleet_bot/robot_node --ros-args -p robot_id:=robot_1
+      // then F5 this config.
+    },
+    {
+      "name": "Fleet: Attach to dashboard (:5680)",
+      "type": "debugpy",
+      "request": "attach",
+      "connect": { "host": "127.0.0.1", "port": 5680 }
+      // From the dashboard dir, run:
+      // python3 -m debugpy --listen 5680 --wait-for-client -m uvicorn app:app --port 8000
+      // then F5 this config.
+    }
+  ],
+  "inputs": [
+    {
+      "id": "robotId",
+      "type": "promptString",
+      "description": "robot_id for this robot_node instance",
+      "default": "robot_1"
+    }
+  ]
+}

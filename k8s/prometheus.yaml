@@ -49,6 +49,13 @@ data:
               severity: warning
             annotations:
               summary: "Bridge losing telemetry to Kafka errors"
+          - alert: TelemetryStopped
+            expr: sum(rate(fleet_bridge_telemetry_forwarded_total[2m])) == 0
+            for: 2m
+            labels:
+              severity: critical
+            annotations:
+              summary: "No telemetry flowing from bridge to Kafka"
           - alert: QueueBackingUp
             expr: fleet_bridge_queue_depth > 1000
             for: 5m
@@ -56,6 +63,7 @@ data:
               severity: warning
             annotations:
               summary: "Bridge queue backing up (>1000 messages)"
+          
 ---
 apiVersion: apps/v1
 kind: Deployment

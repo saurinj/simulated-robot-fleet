@@ -45,7 +45,7 @@ data:
   fleet-bridge.json: |
     {
       "uid": "fleet-bridge",
-      "title": "Fleet Bridge \u2014 Pipeline Health",
+      "title": "Fleet Bridge - Pipeline Health",
       "tags": ["fleet", "prometheus"],
       "timezone": "browser",
       "refresh": "5s",
@@ -60,7 +60,7 @@ data:
           "description": "Messages per second acked by Kafka. Expect ~40/s for a 5-robot fleet at 8 Hz.",
           "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
           "targets": [
-            {"refId": "A", "expr": "rate(fleet_bridge_telemetry_forwarded_total[1m])", "legendFormat": "forwarded"}
+            {"refId": "A", "expr": "sum by (robot_id) (rate(fleet_bridge_telemetry_forwarded_total[1m]))", "legendFormat": "{{robot_id}}"}
           ],
           "fieldConfig": {"defaults": {"unit": "msgs/s", "min": 0}, "overrides": []}
         },

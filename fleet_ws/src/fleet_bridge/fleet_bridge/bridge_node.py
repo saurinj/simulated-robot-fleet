@@ -76,7 +76,7 @@ VALID_COMMANDS = (
 # on high-frequency counters -- per-robot series would explode cardinality).
 M_TELEMETRY_FORWARDED = Counter(
     'fleet_bridge_telemetry_forwarded_total',
-    'Telemetry messages acked by Kafka')
+    'Telemetry messages acked by Kafka', ['robot_id'])
 M_TELEMETRY_DROPPED = Counter(
     'fleet_bridge_telemetry_dropped_total',
     'Telemetry messages dropped because the internal queue was full')
@@ -241,7 +241,7 @@ class TelemetryBridge(Node):
             try:
                 future = self._producer.send(
                     self._telemetry_topic, key=robot_id, value=payload)
-                future.add_callback(self._on_ack)
+                future.add_callback(lambda metadata, rid=robot_id: self._on_ack(metadata, rid))
                 future.add_errback(self._on_send_error)
             except Exception as exc:
                 # send() itself raised: producer buffer full, closing, ...
@@ -250,10 +250,10 @@ class TelemetryBridge(Node):
                 self._warn_throttled(
                     f'kafka send() raised ({self._failed} failed total): {exc}')
 
-    def _on_ack(self, _metadata):
+    def _on_ack(self, _metadata, robot_id):
         """Runs on kafka-python's sender thread when the broker acks."""
         self._forwarded += 1
-        M_TELEMETRY_FORWARDED.inc()
+        M_TELEMETRY_FORWARDED.labels(robot_id=robot_id).inc()
 
     def _on_send_error(self, exc):
         """Runs on kafka-python's sender thread after retries exhaust."""

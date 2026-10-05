@@ -21,10 +21,21 @@ class DriveTest(Node):
     def __init__(self):
         super().__init__('drive_test')
         self.pub = self.create_publisher(Twist, '/cmd_vel', 10)
+        self.wait_for_clock()
         self.t0 = self.get_clock().now()
         self.timer = self.create_timer(0.1, self.tick)
         self.get_logger().info(
             f'driving forward {FORWARD_SPEED} m/s for {DRIVE_SECONDS} s')
+
+    def wait_for_clock(self):
+        # With use_sim_time, now() is epoch 0 until the first /clock
+        # arrives. Capturing t0 before that makes the first /clock
+        # look like hours elapsed, ending the drive instantly.
+        # (Wall-clock mode: now() is immediately non-zero, no wait.)
+        while rclpy.ok():
+            if self.get_clock().now().nanoseconds > 0:
+                return
+            rclpy.spin_once(self, timeout_sec=0.1)
 
     def tick(self):
         t = (self.get_clock().now() - self.t0).nanoseconds / 1e9

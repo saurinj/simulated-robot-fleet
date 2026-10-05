@@ -27,6 +27,7 @@ setup(
             'drive_test = fleet_gz.drive_test:main',
             'odom_tf_relay = fleet_gz.odom_tf_relay:main',
             'scan_check = fleet_gz.scan_check:main',
+            'drive_check = fleet_gz.drive_check:main',
         ],
     },
 )

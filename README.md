@@ -49,15 +49,15 @@ for Kubernetes.
   `robot_id` is deliberately not tunable.
 - **Fault injection → alert → clear round-trips** — inject a fault from the
   dashboard, watch the alert latch, clear it, watch recovery, all live.
-- **Chaos-tested** — scale Kafka to 0 and watch the bridge's failure/DLQ metrics
-  climb in Grafana, then scale back and watch recovery.
+- **Chaos-tested** — the measured blast radius (~2–3 min absorbed; ~4 min exhausts the retry budget; delivery_error counted by stage).
 - **Kubernetes-native** — kind cluster, KRaft Kafka StatefulSet with persistent
-  volume, topics Job, discovery server, Prometheus scrape + 4 alert rules
-  (BridgeDown, TelemetryDropping, TelemetryFailing, QueueBackingUp),
+  volume, topics Job, discovery server, Prometheus scrape + 5 alert rules
+  (BridgeDown, TelemetryDropping, TelemetryFailing, TelemetryStopped, QueueBackingUp),
   provisioned Grafana dashboard.
 - **Measured, not assumed** — 7 Prometheus metrics on the bridge
   (forwarded/dropped/failed counters, queue-depth gauge, DLQ + command counters);
   the bridge's `forwarded` counter is the data-plane oracle.
+- **Regression harness** — run_harness.sh owns the sim lifecycle and asserts on physical outcomes, not commands sent: lidar sees the obstacle, the robot actually moved ~0.9m. 2 passed, 0 failed.
 
 ## Quickstart
 

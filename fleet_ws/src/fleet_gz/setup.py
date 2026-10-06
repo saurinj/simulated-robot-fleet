@@ -29,6 +29,7 @@ setup(
             'scan_check = fleet_gz.scan_check:main',
             'drive_check = fleet_gz.drive_check:main',
             'stop_check = fleet_gz.stop_check:main',
+            'corridor_robot_node = fleet_gz.corridor_robot_node:main',
         ],
     },
 )

@@ -1,138 +1,156 @@
 #!/usr/bin/env python3
-"""Lidar-gated stop assertion for corridor_world.sdf (DRAFT, prepared 2026-10-05).
+"""StopCheck: pure observer/examiner for the corridor scenario.
 
-Drives forward at 0.25 m/s down the corridor and STOPS when the forward
-±30° lidar sector reads below STOP_RANGE_M. PASS if the final /odom x lands
-in [2.4, 3.4] — i.e. the robot halted 0.35–1.35 m before the obstacle face
-at x = 3.75 — FAIL otherwise (drove into it, or never saw it).
+Subscribes to /scan, /odom, /cmd_vel. Publishes NOTHING.
+Watches the brain (corridor_robot_node) drive, waits for /cmd_vel to
+go to zero, then asserts:
+  - Final odom x in [2.4, 3.4] (stopped in the right place).
+  - Final forward lidar distance < 0.8 m (stopped because of the obstacle).
+Exits 0 on PASS, 1 on FAIL. For CI consumption.
 
-Expected numbers: at 0.25 m/s with a 0.8 m stop threshold, the expected
-stop x ≈ 3.75 − 0.8 = 2.95 m (minus any forward offset of the lidar mount).
-
-Conventions inherited from the Oct 5 drive_test/scan_check fixes:
-- use_sim_time: all timing in sim seconds (deterministic under the
-  ~55–70% realtime software rendering).
-- wait for the first /clock before latching t0 — every clock read before
-  the first /clock is the epoch-0 landmine.
-- exit 0/1 so run_harness.sh can consume it like scan_check/drive_check.
-
-Assumes: corridor_world.sdf running, /scan + /odom + /clock bridged
-(/clock bridging was added Oct 5; the /lidar → /scan mapping in
-config/bridge.yaml applies unchanged).
+Run after the bringup and corridor_robot_node are up:
+  ros2 run fleet_gz stop_check --ros-args -p use_sim_time:=True
 """
-
 import math
-import sys
 
 import rclpy
 from rclpy.node import Node
-from geometry_msgs.msg import Twist
-from nav_msgs.msg import Odometry
 from sensor_msgs.msg import LaserScan
+from nav_msgs.msg import Odometry
+from geometry_msgs.msg import Twist
 
-FORWARD_SPEED = 0.25
-STOP_RANGE_M = 0.8          # stop when forward sector min drops below this
-SECTOR_HALF_DEG = 30        # forward ±30°, same sector as scan_check
-PASS_X_MIN, PASS_X_MAX = 2.4, 3.4
+PASS_X_MIN = 2.4
+PASS_X_MAX = 3.4
+STOP_DIST_M = 0.8
+SECTOR_HALF_DEG = 30.0
+RANGE_MIN = 0.05
+RANGE_MAX = 12.0
 TIMEOUT_SIM_S = 40.0
-RANGE_MIN, RANGE_MAX = 0.05, 12.0   # validity band for a scan sample
+STOPPED_CMD_THRESH = 0.01   # |cmd_vel| below this counts as stopped
+STOPPED_CONFIRM_S = 2.0     # must hold for this long (sim seconds)
 
 
 class StopCheck(Node):
     def __init__(self):
         super().__init__('stop_check')
-        self.pub = self.create_publisher(Twist, '/cmd_vel', 10)
         self.latest_scan = None
         self.latest_x = None
+        self.latest_cmd = None
+        self.t0 = None
+        self.done = False
+        self.saw_driving = False
+        self.stopped_since = None
         self.create_subscription(LaserScan, '/scan', self.on_scan, 10)
         self.create_subscription(Odometry, '/odom', self.on_odom, 10)
+        self.create_subscription(Twist, '/cmd_vel', self.on_cmd, 10)
+        self.create_timer(0.1, self.tick)
+        self.get_logger().info('StopCheck: observing (publishes nothing). '
+                               'Waiting for first /clock tick...')
 
-        # wait for the first /clock tick before latching t0 (epoch-0 fix)
-        self.get_logger().info('waiting for first /clock tick...')
-        while rclpy.ok() and self.get_clock().now().nanoseconds == 0:
-            rclpy.spin_once(self, timeout_sec=0.1)
-        self.t0 = self.get_clock().now()
-        self.get_logger().info(
-            f'driving at {FORWARD_SPEED} m/s until forward sector < {STOP_RANGE_M} m')
-        self.timer = self.create_timer(0.1, self.tick)
-
-    def on_scan(self, msg):
+    def on_scan(self, msg: LaserScan):
         self.latest_scan = msg
 
-    def on_odom(self, msg):
+    def on_odom(self, msg: Odometry):
         self.latest_x = msg.pose.pose.position.x
-    
-    def sector_min(self):
-        """Min valid range in the forward ±SECTOR_HALF_DEG sector.
 
-        Forward is derived from the scan's own angle_min/angle_increment,
-        so this is correct regardless of which way index 0 points.
-        """
+    def on_cmd(self, msg: Twist):
+        self.latest_cmd = msg.linear.x
+
+    def sector_min(self) -> float:
         msg = self.latest_scan
         half_rad = math.radians(SECTOR_HALF_DEG)
         valid = []
         for i, r in enumerate(msg.ranges):
             a = msg.angle_min + i * msg.angle_increment
-            a = (a + math.pi) % (2 * math.pi) - math.pi  # wrap to [-pi, pi]
+            a = (a + math.pi) % (2 * math.pi) - math.pi
             if abs(a) <= half_rad and math.isfinite(r) \
                     and RANGE_MIN < r < RANGE_MAX:
                 valid.append(r)
         return min(valid) if valid else float('inf')
 
-    def stop(self):
-        msg = Twist()  # all zeros
-        self.pub.publish(msg)
-
-    def finish(self, passed, reason):
-        self.stop()
-        x = self.latest_x
-        xs = f'{x:.2f} m' if x is not None else 'unknown'
-        self.get_logger().info(
-            f'{"PASS" if passed else "FAIL"}: {reason} (final odom x = {xs})')
-        raise SystemExit(0 if passed else 1)
-
     def tick(self):
-        t = (self.get_clock().now() - self.t0).nanoseconds / 1e9
+        if self.done:
+            return
+        now = self.get_clock().now()
+        if self.t0 is None:
+            if now.nanoseconds == 0:
+                return  # no /clock yet
+            self.t0 = now
+            self.get_logger().info(
+                'StopCheck: clock live. Waiting for the brain to drive...')
+            return
+        t = (now - self.t0).nanoseconds / 1e9
 
-        if self.latest_scan is None or self.latest_x is None:
-            # data-based readiness: don't drive blind
+        if self.latest_cmd is None or self.latest_x is None \
+                or self.latest_scan is None:
             if t > TIMEOUT_SIM_S:
-                self.finish(False, 'timed out waiting for /scan or /odom')
+                self.finish(False, 'timed out waiting for /scan, /odom, or /cmd_vel')
             return
 
-        d = self.sector_min()
-        if d < STOP_RANGE_M:
-            x = self.latest_x
-            if PASS_X_MIN <= x <= PASS_X_MAX:
-                self.finish(True,
-                            f'stopped {3.75 - x:.2f} m before the obstacle face')
-            else:
-                self.finish(False,
-                            f'stopped outside the expected band '
-                            f'[{PASS_X_MIN}, {PASS_X_MAX}]')
+        # Phase 1: wait until the brain is actually driving.
+        if not self.saw_driving:
+            if abs(self.latest_cmd) > 0.1:
+                self.saw_driving = True
+                self.get_logger().info('StopCheck: brain is driving. Watching for stop...')
+            elif t > TIMEOUT_SIM_S:
+                self.finish(False, 'timed out: brain never started driving')
             return
+
+        # Phase 2: wait for a sustained stop command.
+        if abs(self.latest_cmd) < STOPPED_CMD_THRESH:
+            if self.stopped_since is None:
+                self.stopped_since = t
+            elif t - self.stopped_since >= STOPPED_CONFIRM_S:
+                self.evaluate()
+                return
+        else:
+            self.stopped_since = None  # still moving; reset
 
         if t > TIMEOUT_SIM_S:
-            self.finish(False, 'timed out: never saw the obstacle')
+            self.finish(False, 'timed out: brain never stopped')
+
+    def evaluate(self):
+        """The brain stopped. Assert it stopped in the right place for the
+        right reason."""
+        d_final = self.sector_min()
+        x = self.latest_x
+        in_band = PASS_X_MIN <= x <= PASS_X_MAX
+        saw_obstacle = d_final < STOP_DIST_M
+        ok = in_band and saw_obstacle
+        detail = (f'final odom x = {x:.2f} m (band [{PASS_X_MIN}, {PASS_X_MAX}]), '
+                  f'final lidar = {d_final:.2f} m')
+        if ok:
+            self.finish(True, f'stopped correctly. {detail}')
+        else:
+            reasons = []
+            if not in_band:
+                reasons.append('outside position band')
+            if not saw_obstacle:
+                reasons.append('no obstacle in range (wrong reason to stop?)')
+            self.finish(False, f'{", ".join(reasons)}. {detail}')
+
+    def finish(self, ok: bool, detail: str):
+        if self.done:
             return
+        self.done = True
+        # NOTE: publishes nothing — pure observer.
+        msg = f'{"PASS" if ok else "FAIL"}: {detail}'
+        self.get_logger().info(msg)
+        raise SystemExit(0 if ok else 1)
 
-        msg = Twist()
-        msg.linear.x = FORWARD_SPEED
-        self.pub.publish(msg)
 
-
-def main(args=None):
-    rclpy.init(args=args)
+def main():
+    rclpy.init()
     node = StopCheck()
-    code = 0
     try:
         rclpy.spin(node)
     except SystemExit as e:
-        code = e.code if isinstance(e.code, int) else 0
+        raise
+    except KeyboardInterrupt:
+        pass
     finally:
         node.destroy_node()
         rclpy.shutdown()
-    sys.exit(code)
 
 
 if __name__ == '__main__':

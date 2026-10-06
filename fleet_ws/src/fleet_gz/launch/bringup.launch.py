@@ -21,15 +21,15 @@ Then, in other terminals (same container, workspace sourced):
 """
 
 from launch import LaunchDescription
-from launch.actions import ExecuteProcess
-from launch.substitutions import PathJoinSubstitution
+from launch.actions import ExecuteProcess, DeclareLaunchArgument
+from launch.substitutions import PathJoinSubstitution, LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description():
     pkg_share = FindPackageShare('fleet_gz')
-    world = PathJoinSubstitution([pkg_share, 'worlds', 'test_world.sdf'])
+    world = PathJoinSubstitution([pkg_share, 'worlds', LaunchConfiguration('world')])
     bridge_config = PathJoinSubstitution([pkg_share, 'config', 'bridge.yaml'])
 
     gz_server = ExecuteProcess(
@@ -50,4 +50,7 @@ def generate_launch_description():
         output='screen',
     )
 
-    return LaunchDescription([gz_server, bridge, tf_relay])
+    return LaunchDescription([gz_server, bridge, tf_relay, 
+                              DeclareLaunchArgument('world', 
+                                                    default_value='test_world.sdf', 
+                                                    description='SDF world file')])

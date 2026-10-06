@@ -28,6 +28,7 @@ setup(
             'odom_tf_relay = fleet_gz.odom_tf_relay:main',
             'scan_check = fleet_gz.scan_check:main',
             'drive_check = fleet_gz.drive_check:main',
+            'stop_check = fleet_gz.stop_check:main',
         ],
     },
 )

@@ -1,4 +1,5 @@
 # Simulated Robot Fleet — Telemetry & Operations Platform
+![Harness](https://github.com/saurinj/simulated-robot-fleet/actions/workflows/harness.yml/badge.svg)
 
 A production-shaped robotics fleet telemetry platform: five simulated ROS 2 robots
 streaming telemetry through a Kafka-backed bridge, deployed on Kubernetes, with

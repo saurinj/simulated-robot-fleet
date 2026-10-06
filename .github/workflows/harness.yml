@@ -1,0 +1,75 @@
+name: Project 2 Harness
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  harness:
+    runs-on: ubuntu-latest
+    container:
+      image: osrf/ros:humble-desktop
+      options: --privileged  # Gazebo needs /dev/shm and shared memory
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Link workspace to expected path
+        # run_harness.sh does `cd /root/fleet_ws`; the repo checks out
+        # with fleet_ws/ as a subdirectory.
+        run: |
+          ln -s "$GITHUB_WORKSPACE/fleet_ws" /root/fleet_ws
+          ls /root/fleet_ws/src
+
+      - name: Install Gazebo and ROS deps
+        run: |
+          bash /root/fleet_ws/scripts/install-gz-deps.sh
+        # install-gz-deps.sh adds the OSRF repo and installs:
+        #   gz-fortress, ros-humble-ros-gz, teleop_twist_keyboard, foxglove_bridge
+
+      - name: Diagnose environment
+        run: |
+          echo "--- which checks ---"
+          which apt-get || echo "NO apt-get"
+          which colcon || echo "NO colcon"
+          which ros2 || echo "NO ros2"
+          which pip3 || echo "NO pip3"
+          echo "--- ROS setup ---"
+          ls /opt/ros/humble/setup.bash || echo "NO /opt/ros/humble/setup.bash"
+          echo "--- PATH ---"
+          echo $PATH
+          echo "--- apt colcon ---"
+          apt-cache policy python3-colcon-common-extensions 2>&1 | head -5
+
+      - name: Build workspace
+        run: |
+          bash -c '
+          set -e
+          apt-get update && apt-get install -y python3-colcon-common-extensions
+          cd /root/fleet_ws
+          source /opt/ros/humble/setup.bash
+          colcon build --symlink-install
+          source install/setup.bash
+          ros2 pkg executables fleet_gz | grep -E "corridor_robot_node|stop_check"
+          '
+
+      - name: Run regression harness
+        timeout-minutes: 15
+        run: |
+          bash /root/fleet_ws/scripts/run_harness.sh
+        # Exit code = number of failed checks. The harness prints:
+        #   PASS  scan_check (perception)
+        #   PASS  drive_check (motion)
+        #   PASS  stop_check (corridor lidar-gated stop)
+
+      - name: Upload bringup logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: harness-logs
+          path: |
+            /tmp/harness-bringup.log
+            /tmp/harness-bringup-corridor.log
+            /tmp/drive_test.log

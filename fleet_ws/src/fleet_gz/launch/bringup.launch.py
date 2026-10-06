@@ -50,7 +50,5 @@ def generate_launch_description():
         output='screen',
     )
 
-    return LaunchDescription([gz_server, bridge, tf_relay, 
-                              DeclareLaunchArgument('world', 
-                                                    default_value='test_world.sdf', 
-                                                    description='SDF world file')])
+    return LaunchDescription([ DeclareLaunchArgument('world', default_value='test_world.sdf', 
+                            description='SDF world file'), gz_server, bridge, tf_relay])

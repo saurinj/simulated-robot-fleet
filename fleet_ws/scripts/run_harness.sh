@@ -19,6 +19,7 @@ cleanup() {
   pkill -f "ign gazebo" 2>/dev/null
   pkill -f "parameter_bridge" 2>/dev/null
   pkill -f "bringup.launch" 2>/dev/null
+  pkill -f "corridor_robot_node" 2>/dev/null
 }
 trap cleanup EXIT
 
@@ -53,6 +54,36 @@ run_check() {
 # perception first: the world must be pristine for the assertion
 run_check "scan_check (perception)" ros2 run fleet_gz scan_check
 run_check "drive_check (motion)"    ros2 run fleet_gz drive_check
+
+# --- Phase 2: corridor (brain + examiner) ---
+echo
+echo "--- Phase 2: corridor_world.sdf ---"
+
+# Tear down Phase 1 sim.
+kill "$LAUNCH_PID" 2>/dev/null
+sleep 2
+pkill -f "ign gazebo" 2>/dev/null
+pkill -f "parameter_bridge" 2>/dev/null
+sleep 2
+
+# Launch corridor world.
+ros2 launch fleet_gz bringup.launch.py world:=corridor_world.sdf > /tmp/harness-bringup-corridor.log 2>&1 &
+LAUNCH_PID=$!
+
+wait_for_data /scan || exit 2
+wait_for_data /odom || exit 2
+
+# Start the brain in background.
+ros2 run fleet_gz corridor_robot_node --ros-args -p use_sim_time:=True &
+BRAIN_PID=$!
+sleep 3  # let it start driving
+
+# Examiner: exit code is the verdict.
+run_check "stop_check (corridor lidar-gated stop)" ros2 run fleet_gz stop_check --ros-args -p use_sim_time:=True
+
+# Stop the brain.
+kill "$BRAIN_PID" 2>/dev/null
+wait "$BRAIN_PID" 2>/dev/null
 
 echo
 echo "===== HARNESS REPORT ====="

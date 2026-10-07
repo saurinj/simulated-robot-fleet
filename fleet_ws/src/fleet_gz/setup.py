@@ -32,6 +32,7 @@ setup(
             'corridor_robot_node = fleet_gz.corridor_robot_node:main',
             'goal_nav_node = fleet_gz.goal_nav_node:main',
             'goal_check = fleet_gz.goal_check:main',
+            'goal_steer_node = fleet_gz.goal_steer_node:main',
         ],
     },
 )

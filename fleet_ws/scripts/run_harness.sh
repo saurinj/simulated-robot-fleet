@@ -23,6 +23,7 @@ cleanup() {
   pkill -f "goal_nav_node" 2>/dev/null
   pkill -f "goal_check" 2>/dev/null
   pkill -f "odom_tf_relay" 2>/dev/null
+  pkill -f "goal_steer_node" 2>/dev/null
   sleep 2
 }
 trap cleanup EXIT
@@ -91,7 +92,7 @@ sleep 2
 
 # --- Phase 3: goal_world.sdf (navigation) ---
 echo
-echo "--- Phase 3: goal_world.sdf ---"
+echo "--- Phase 3: goal_world.sdf (only x axis movement) ---"
 
 # Tear down Phase 2 sim.
 kill "$LAUNCH_PID" 2>/dev/null
@@ -118,6 +119,35 @@ run_check "goal_check (navigation to goal)" ros2 run fleet_gz goal_check --ros-a
 # Stop the brain.
 pkill -f "goal_nav_node" 2>/dev/null
 sleep 2
+
+# --- Phase 4: goal_world.sdf (steering navigation) ---
+echo
+echo "--- Phase 4: goal_world.sdf (steering - both X and Y axis movement) ---"
+
+# Tear down Phase 3 sim.
+kill "$LAUNCH_PID" 2>/dev/null
+sleep 2
+pkill -f "ign gazebo" 2>/dev/null
+pkill -f "parameter_bridge" 2>/dev/null
+sleep 2
+
+# Launch goal world.
+ros2 launch fleet_gz bringup.launch.py world:=goal_world.sdf > /tmp/harness-bringup-steer.log 2>&1 &
+LAUNCH_PID=$!
+
+wait_for_data /scan || exit 2
+wait_for_data /odom || exit 2
+
+# Start the steering brain in background.
+ros2 run fleet_gz goal_steer_node --ros-args -p use_sim_time:=True -p goal_x:=3.0 -p goal_y:=3.0 &
+sleep 3
+
+# Examiner: exit code is the verdict.
+run_check "goal_steer_check (diagonal navigation)" ros2 run fleet_gz goal_check --ros-args -p use_sim_time:=True -p goal_x:=3.0 -p goal_y:=3.0
+
+# Stop the brain.
+pkill -f "goal_steer_node" 2>/dev/null
+sleep 1
 
 echo
 echo "===== HARNESS REPORT ====="

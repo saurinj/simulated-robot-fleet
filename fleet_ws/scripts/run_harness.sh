@@ -20,6 +20,10 @@ cleanup() {
   pkill -f "parameter_bridge" 2>/dev/null
   pkill -f "bringup.launch" 2>/dev/null
   pkill -f "corridor_robot_node" 2>/dev/null
+  pkill -f "goal_nav_node" 2>/dev/null
+  pkill -f "goal_check" 2>/dev/null
+  pkill -f "odom_tf_relay" 2>/dev/null
+  sleep 2
 }
 trap cleanup EXIT
 
@@ -82,8 +86,38 @@ sleep 3  # let it start driving
 run_check "stop_check (corridor lidar-gated stop)" ros2 run fleet_gz stop_check --ros-args -p use_sim_time:=True
 
 # Stop the brain.
-kill "$BRAIN_PID" 2>/dev/null
-wait "$BRAIN_PID" 2>/dev/null
+pkill -f "corridor_robot_node" 2>/dev/null
+sleep 2
+
+# --- Phase 3: goal_world.sdf (navigation) ---
+echo
+echo "--- Phase 3: goal_world.sdf ---"
+
+# Tear down Phase 2 sim.
+kill "$LAUNCH_PID" 2>/dev/null
+sleep 2
+pkill -f "ign gazebo" 2>/dev/null
+pkill -f "parameter_bridge" 2>/dev/null
+sleep 2
+
+# Launch goal world.
+ros2 launch fleet_gz bringup.launch.py world:=goal_world.sdf > /tmp/harness-bringup-goal.log 2>&1 &
+LAUNCH_PID=$!
+
+wait_for_data /scan || exit 2
+wait_for_data /odom || exit 2
+
+# Start the brain in background.
+ros2 run fleet_gz goal_nav_node --ros-args -p use_sim_time:=True -p goal_x:=5.0 -p goal_y:=0.0 &
+BRAIN_PID=$!
+sleep 3
+
+# Examiner: exit code is the verdict.
+run_check "goal_check (navigation to goal)" ros2 run fleet_gz goal_check --ros-args -p use_sim_time:=True -p goal_x:=5.0 -p goal_y:=0.0
+
+# Stop the brain.
+pkill -f "goal_nav_node" 2>/dev/null
+sleep 2
 
 echo
 echo "===== HARNESS REPORT ====="

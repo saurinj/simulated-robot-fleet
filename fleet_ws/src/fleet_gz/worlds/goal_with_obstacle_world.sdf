@@ -1,9 +1,9 @@
 <?xml version="1.0" ?>
 <!--
-  goal_world.sdf — Project 2 scenario world #1 (DRAFT, prepared 2026-10-05).
+  goal_with_obstacle_world.sdf — Project 2 scenario world #1 (DRAFT, prepared 2026-10-05).
 
-  It doesn't have any obstacles and is targeted to test that robot reaches 
-  its goal_x and goal_y
+  It has an obstacle and is targeted to test that robot reaches 
+  its goal_x and goal_y by moving left when obstacle is encountered
 
   >>> ROBOT BLOCK: paste your CURRENT diff_bot model block here — the one
   >>> from test_world.sdf WITH your working gpu_lidar sensor block.
@@ -12,11 +12,11 @@
   >>> mapping in config/bridge.yaml applies unchanged (same topic name).
 
   Install: drop into fleet_gz/worlds/ (setup.py already globs worlds/*.sdf),
-  rebuild fleet_gz, launch with:  ros2 launch fleet_gz bringup.launch.py world:=goal_world.sdf
+  rebuild fleet_gz, launch with:  ros2 launch fleet_gz bringup.launch.py world:=goal_with_obstacle_world.sdf
   (requires the 'world' launch argument — see recipe.)
 -->
 <sdf version="1.9">
-  <world name="goal_world">
+  <world name="goal_with_obstacle_world">
 
     <physics name="1ms" type="ignored">
       <max_step_size>0.001</max_step_size>
@@ -63,6 +63,24 @@
           <material>
             <ambient>0.7 0.7 0.7 1</ambient>
             <diffuse>0.7 0.7 0.7 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- the obstacle: 0.5 m box dead ahead, front face at x = 3.75 -->
+    <model name="obstacle">
+      <static>true</static>
+      <pose>2.0 2.0 0.5 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.5 0.5 1.0</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.5 0.5 1.0</size></box></geometry>
+          <material>
+            <ambient>0.5 0.5 0.5 1</ambient>
+            <diffuse>0.5 0.5 0.5 1</diffuse>
           </material>
         </visual>
       </link>

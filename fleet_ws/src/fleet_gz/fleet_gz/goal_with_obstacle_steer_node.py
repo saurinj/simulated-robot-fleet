@@ -36,10 +36,14 @@ class GoalWithObstacleSteerNode(GoalSteerNode):
         super().__init__('goal_with_obstacle_steer_robot_node')
         self.latest_scan = None
         self.avoid_until = None
+
+        self.last_scan_time = None
+
         self.create_subscription(LaserScan, '/scan', self.on_scan, 10)
 
     def on_scan(self, msg: LaserScan):
         self.latest_scan = msg
+        self.last_scan_time = self.get_clock().now()
 
     def sector_min(self) -> float:
         """Min valid range in the forward wedge, derived from the scan's
@@ -59,21 +63,34 @@ class GoalWithObstacleSteerNode(GoalSteerNode):
         # obstacle check comes first, rest logic is same as previous version
         now = self.get_clock().now()
         if self.avoid_until is not None and now < self.avoid_until:
-            
-            cmd = Twist(linear=Vector3(x=FORWARD_SPEED), angular=Vector3(z=0.0))
+            cmd = Twist(linear=Vector3(x=0.0), angular=Vector3(z=0.5))
         elif fwd_dist < STOP_DIST_M:
             # Obstacle! start 2-sec turn
             self.avoid_until = now + Duration(seconds=2.0)
             cmd = Twist(linear=Vector3(x=0.0), angular=Vector3(z=0.5))
         else:
-            self.avoid_pos = None
+            self.avoid_until = None
             cmd = super().get_twist(heading_error, dist)
         return cmd
     
     def tick(self):
         if self.latest_ori is None or self.latest_pos is None or self.latest_scan is None:
             return
-        
+
+        now = self.get_clock().now()
+        # Sensor-dropout failsafe - return after 10 messages (10 messages come in 1 sec)
+        if (now - self.last_scan_time > Duration(seconds=1.0)):
+            self.get_logger().info('SCAN STALE')
+            # publish 0 twist otherwise robot will continue driving forward
+            self.cmd_pub.publish(Twist())
+            return
+        # Sensor-dropout failsafe - return after 10 messages (10 messages come in 1 sec)
+        if (now - self.last_odom_time > Duration(seconds=1.0)):
+            self.get_logger().info('ODOM STALE')
+            # publish 0 twist otherwise robot will continue driving forward
+            self.cmd_pub.publish(Twist()) 
+            return
+
         p = self.latest_pos
         goal_x = self.get_parameter('goal_x').value
         goal_y = self.get_parameter('goal_y').value

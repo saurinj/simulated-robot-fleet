@@ -25,6 +25,7 @@ class GoalSteerNode(Node):
         super().__init__(node_name)
         self.latest_ori = None
         self.latest_pos = None
+        self.last_odom_time = None
 
         self.declare_parameter('goal_x', 5.0)
         self.declare_parameter('goal_y', 0.0)
@@ -39,6 +40,7 @@ class GoalSteerNode(Node):
     def on_odom(self, msg: Odometry):
         self.latest_ori = msg.pose.pose.orientation
         self.latest_pos = msg.pose.pose.position
+        self.last_odom_time = self.get_clock().now()
 
     def calculate_dist(self, dx, dy) -> float:
         return math.hypot(dx, dy)

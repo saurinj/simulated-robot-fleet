@@ -149,6 +149,35 @@ run_check "goal_steer_check (diagonal navigation)" ros2 run fleet_gz goal_check 
 pkill -f "goal_steer_node" 2>/dev/null
 sleep 1
 
+# --- Phase 5: goal_with_obstacle_world.sdf (steering navigation turning on obstacle) ---
+echo
+echo "--- Phase 5: goal_with_obstacle_world.sdf (steering both X and Y axis movement, turning on obstacle) ---"
+
+# Tear down Phase 4 sim.
+kill "$LAUNCH_PID" 2>/dev/null
+sleep 2
+pkill -f "ign gazebo" 2>/dev/null
+pkill -f "parameter_bridge" 2>/dev/null
+sleep 2
+
+# Launch goal_with_obstacle world.
+ros2 launch fleet_gz bringup.launch.py world:=goal_with_obstacle_world.sdf > /tmp/harness-bringup-obstacle.log 2>&1 &
+LAUNCH_PID=$!
+
+wait_for_data /scan || exit 2
+wait_for_data /odom || exit 2
+
+# Start the steering brain in background.
+ros2 run fleet_gz goal_with_obstacle_steer_node --ros-args -p use_sim_time:=True -p goal_x:=4.0 -p goal_y:=4.0 &
+BRAIN_PID=$!
+
+# Examiner: runs CONCURRENTLY, blocks until PASS/FAIL (90s timeout inside).
+run_check "obstacle_check (avoidance maneuver)" ros2 run fleet_gz obstacle_check --ros-args -p use_sim_time:=True
+
+# Stop the brain.
+pkill -f "goal_with_obstacle_steer_node" 2>/dev/null
+sleep 1
+
 echo
 echo "===== HARNESS REPORT ====="
 printf '%s\n' "${RESULTS[@]}"

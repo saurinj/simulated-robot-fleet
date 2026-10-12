@@ -36,6 +36,7 @@ class GoalWithObstacleSteerNode(GoalSteerNode):
         super().__init__('goal_with_obstacle_steer_robot_node')
         self.latest_scan = None
         self.avoid_until = None
+        self.drive_after_turn_until = None
 
         self.last_scan_time = None
 
@@ -62,14 +63,19 @@ class GoalWithObstacleSteerNode(GoalSteerNode):
     def get_twist(self, fwd_dist, heading_error, dist) -> Twist:
         # obstacle check comes first, rest logic is same as previous version
         now = self.get_clock().now()
+
         if self.avoid_until is not None and now < self.avoid_until:
             cmd = Twist(linear=Vector3(x=0.0), angular=Vector3(z=0.5))
+        elif self.drive_after_turn_until is not None and now < self.drive_after_turn_until:
+            cmd = Twist(linear=Vector3(x=FORWARD_SPEED), angular=Vector3(z=0.0))
+            self.avoid_until = None
         elif fwd_dist < STOP_DIST_M:
             # Obstacle! start 2-sec turn
             self.avoid_until = now + Duration(seconds=2.0)
+            self.drive_after_turn_until = self.avoid_until + Duration(seconds=2.0)
             cmd = Twist(linear=Vector3(x=0.0), angular=Vector3(z=0.5))
         else:
-            self.avoid_until = None
+            self.drive_after_turn_until = None
             cmd = super().get_twist(heading_error, dist)
         return cmd
     

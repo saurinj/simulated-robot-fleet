@@ -19,6 +19,7 @@ from geometry_msgs.msg import Twist, Vector3
 
 FORWARD_SPEED = 0.25      # m/s
 PUBLISH_HZ = 10.0
+ANGULAR_GAIN = 1.0
 
 class GoalSteerNode(Node):
     def __init__(self, node_name='goal_steer_robot_node'):
@@ -58,10 +59,10 @@ class GoalSteerNode(Node):
     def get_twist(self, heading_error, dist) -> Twist:
         if abs(heading_error) > 0.3:
             # Turn in place
-            cmd = Twist(linear=Vector3(x=0.0), angular=Vector3(z=1.0 * heading_error))
+            cmd = Twist(linear=Vector3(x=0.0), angular=Vector3(z=ANGULAR_GAIN * heading_error))
         elif dist > 0.3:
             # Drive forward, correcting heading
-            cmd = Twist(linear=Vector3(x=FORWARD_SPEED), angular=Vector3(z=1.0 * heading_error))
+            cmd = Twist(linear=Vector3(x=FORWARD_SPEED), angular=Vector3(z=ANGULAR_GAIN * heading_error))
         else:
             # Arrived
             cmd = Twist()

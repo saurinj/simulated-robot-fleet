@@ -24,6 +24,7 @@ cleanup() {
   pkill -f "goal_check" 2>/dev/null
   pkill -f "odom_tf_relay" 2>/dev/null
   pkill -f "goal_steer_node" 2>/dev/null
+  pkill -f "goal_with_obstacle_steer_node" 2>/dev/null
   sleep 2
 }
 trap cleanup EXIT
@@ -196,10 +197,14 @@ LAUNCH_PID=$!
 wait_for_data /robot1/scan || exit 2
 wait_for_data /robot1/odom || exit 2
 
-bash scripts/fleet_bringup.sh
+bash scripts/fleet_bringup.sh --no-wait
+
+# Run examiner (blocks until it exits 0/1)
+run_check "fleet_check" ros2 run fleet_gz fleet_check --ros-args -p use_sim_time:=True
 
 # Stop the brain.
 pkill -f "goal_with_obstacle_steer_node" 2>/dev/null
+pkill -f static_transform_publisher 2>/dev/null
 sleep 1
 
 echo

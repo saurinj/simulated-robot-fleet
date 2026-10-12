@@ -4,14 +4,17 @@
 # Edit SPAWN_* to match your SDF spawn poses if they differ.
 
 set -e
+NO_WAIT=false
+[[ "$1" == "--no-wait" ]] && NO_WAIT=true
+
 source /opt/ros/humble/setup.bash
 source /root/fleet_ws/install/setup.bash
 
 # Robot configs: name | goal_x | goal_y | spawn_x | spawn_y | spawn_yaw
 ROBOTS=(
   "robot1 4.0 4.0 0 0 0"
-  "robot2 -4.0 4.0 0 3 0"
-  "robot3 4.0 -4.0 3 0 0"
+  "robot2 -4.0 1.0 0 3 0"
+  "robot3 1.0 -4.0 3 0 0"
 )
 # Gazebo model names (for lidar frames)
 MODELS=("diff_bot_1" "diff_bot_2" "diff_bot_3")
@@ -23,7 +26,7 @@ cleanup() {
   echo "Stopping fleet..."
   for pid in "${PIDS[@]}"; do kill "$pid" 2>/dev/null || true; done
   pkill -f static_transform_publisher 2>/dev/null || true
-  pkill -f goal_with_obstacle_steer_node 2>/dev/null || true
+  pkill -f goal_steer_node 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 
@@ -44,7 +47,7 @@ for entry in "${ROBOTS[@]}"; do
   PIDS+=($!)
 
   # brain with explicit topic remaps (code uses absolute /scan etc.)
-  ros2 run fleet_gz goal_with_obstacle_steer_node --ros-args \
+  ros2 run fleet_gz goal_steer_node --ros-args \
     -r __ns:="/$name" \
     -r /scan:="/$name/scan" \
     -r /odom:="/$name/odom" \
@@ -55,6 +58,12 @@ for entry in "${ROBOTS[@]}"; do
 
   i=$((i + 1))
 done
+
+if [ "$NO_WAIT" = true ]; then
+  echo "Fleet launched (backgrounded for harness)."
+  trap - EXIT INT TERM
+  exit 0
+fi
 
 echo "Fleet up: ${#ROBOTS[@]} robots. Ctrl-C to stop."
 wait

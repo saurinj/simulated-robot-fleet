@@ -35,6 +35,7 @@ setup(
             'goal_steer_node = fleet_gz.goal_steer_node:main',
             'goal_with_obstacle_steer_node = fleet_gz.goal_with_obstacle_steer_node:main',
             'obstacle_check = fleet_gz.obstacle_check:main',
+            'fleet_check = fleet_gz.fleet_check:main',
         ],
     },
 )

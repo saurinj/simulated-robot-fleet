@@ -178,6 +178,30 @@ run_check "obstacle_check (avoidance maneuver)" ros2 run fleet_gz obstacle_check
 pkill -f "goal_with_obstacle_steer_node" 2>/dev/null
 sleep 1
 
+# --- Phase 6: fleet_world.sdf (fleet of robots) ---
+echo
+echo "--- Phase 6: fleet_world.sdf (fleet of robots) ---"
+
+# Tear down Phase 5 sim.
+kill "$LAUNCH_PID" 2>/dev/null
+sleep 2
+pkill -f "ign gazebo" 2>/dev/null
+pkill -f "parameter_bridge" 2>/dev/null
+sleep 2
+
+# Launch fleet world.
+ros2 launch fleet_gz bringup.launch.py world:=fleet_world.sdf > /tmp/harness-bringup-fleet.log 2>&1 &
+LAUNCH_PID=$!
+
+wait_for_data /robot1/scan || exit 2
+wait_for_data /robot1/odom || exit 2
+
+bash scripts/fleet_bringup.sh
+
+# Stop the brain.
+pkill -f "goal_with_obstacle_steer_node" 2>/dev/null
+sleep 1
+
 echo
 echo "===== HARNESS REPORT ====="
 printf '%s\n' "${RESULTS[@]}"

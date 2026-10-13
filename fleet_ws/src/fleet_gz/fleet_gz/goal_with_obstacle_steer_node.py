@@ -32,8 +32,8 @@ RANGE_MIN = 0.05          # ignore closer than this (sensor noise)
 RANGE_MAX = 12.0          # ignore farther than this
 
 class GoalWithObstacleSteerNode(GoalSteerNode):
-    def __init__(self):
-        super().__init__('goal_with_obstacle_steer_robot_node')
+    def __init__(self, node_name='goal_with_obstacle_steer_robot_node'):
+        super().__init__(node_name)
         self.latest_scan = None
         self.avoid_until = None
         self.drive_after_turn_until = None

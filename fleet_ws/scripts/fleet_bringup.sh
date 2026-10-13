@@ -47,7 +47,7 @@ for entry in "${ROBOTS[@]}"; do
   PIDS+=($!)
 
   # brain with explicit topic remaps (code uses absolute /scan etc.)
-  ros2 run fleet_gz goal_steer_node --ros-args \
+  ros2 run fleet_gz fleet_aware_robot_node --ros-args \
     -r __ns:="/$name" \
     -r /scan:="/$name/scan" \
     -r /odom:="/$name/odom" \

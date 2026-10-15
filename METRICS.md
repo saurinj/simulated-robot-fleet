@@ -57,19 +57,73 @@ fleet_bridge_telemetry_forwarded_total 1240.0
 fleet_bridge_queue_depth 0.0
 ```
 
-## What's next (after the RAM upgrade, with Kubernetes)
+## Observability status (updated 2026-10-15)
 
-1. Rebuild `fleet-ros:latest` — the Dockerfile now installs
-   `prometheus_client`, and `bridge.yaml` declares `containerPort: 8001`
-   (name `metrics`).
-2. Deploy Prometheus with a scrape config (or ServiceMonitor) targeting
-   the bridge's `metrics` port, and Grafana with a dashboard built on
-   these metrics. Suggested first panels:
-   - `rate(fleet_bridge_telemetry_forwarded_total[1m])` — pipeline throughput
-   - `fleet_bridge_queue_depth` — backpressure early warning
-   - `rate(fleet_bridge_telemetry_dropped_total[1m])` and
-     `rate(fleet_bridge_telemetry_failed_total[1m])` — loss signals
-   - `rate(fleet_bridge_commands_invalid_total[1m]) by (reason)` —
-     bad-actor / bad-client detection on the command path
-3. Alert rules: queue depth growing, drop rate > 0, any
-   `commands_invalid{reason="unknown_robot"}` (someone probing the fleet).
+The Kubernetes plan that used to sit here is complete. The stack runs
+on a kind cluster (namespace `fleet`):
+
+- **Prometheus** (v3.14.0) scrapes `bridge-metrics:8001` every 15s
+  (job `fleet-bridge`) and keeps 7 days of samples.
+- **Grafana** renders the provisioned "Fleet Bridge - Pipeline Health"
+  dashboard. It stores no metrics — it queries Prometheus at view time.
+- **Alert rules are canonical in Prometheus** (`rules.yml`, group
+  `fleet-bridge`, in the `prometheus-config` ConfigMap): BridgeDown,
+  TelemetryDropping, TelemetryFailing, TelemetryStopped,
+  QueueBackingUp. Grafana-UI duplicates written during the survey were
+  retired: they drifted from the tuned thresholds (queue 10 vs 1000)
+  and Grafana's rule storage is ephemeral (no PVC).
+- **Alertmanager** (v0.30.1, `k8s/alertmanager.yaml`) is the single
+  notification path: Prometheus → Alertmanager → ntfy webhook → phone,
+  grouped by alertname, with resolved notifications. The webhook URL
+  lives in a cluster Secret read via `url_file` — never in this repo.
+- **Verified end to end 2026-10-15** with a Kafka-outage drill:
+  TelemetryStopped and TelemetryFailing fired from the canonical rules
+  during the outage and resolved after recovery, phone pushes both ways.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Op as Saurin (operator)
+    participant K as Kafka
+    participant B as Bridge
+    participant P as Prometheus
+    participant A as Alertmanager
+    participant S as K8s Secret
+    participant N as ntfy.sh
+    participant Ph as Phone
+
+    rect rgb(224, 231, 255)
+    Note over P,B: Steady state
+    loop Every 15s
+        P->>B: GET /metrics (bridge-metrics:8001)
+        B-->>P: telemetry counters · queue depth
+    end
+    P->>P: Evaluate rules.yml — all Normal
+    end
+
+    rect rgb(254, 226, 226)
+    Note over Op,K: Drill — fault injection (2026-10-15)
+    Op->>K: kubectl scale sts kafka --replicas=0
+    B->>K: telemetry send
+    K--xB: delivery fails (stage=delivery_error)
+    Note over B: failed_total climbs · forwarding stalls · queue backs up
+    P->>P: TelemetryStopped fires 09:02:25 (critical)<br/>TelemetryFailing fires 09:02:55 (warning)
+    P->>A: POST firing alerts
+    A->>S: read webhook URL (url_file)
+    A->>A: group by alertname · group_wait 10s
+    A->>N: POST webhook (JSON)
+    N->>Ph: push — Stopped 09:02 · Failing 09:03
+    end
+
+    rect rgb(220, 252, 231)
+    Note over Op,K: Recovery
+    Op->>K: kubectl scale sts kafka --replicas=1
+    B->>K: reconnect — forwarding resumes · queue drains
+    P->>P: conditions clear (Stopped endsAt 09:05:55)
+    P->>A: POST resolved alerts
+    A->>N: POST webhook (resolved)
+    N->>Ph: push — resolved 09:07
+    end
+
+    Note over P,Ph: Grafana is not in this path — it only queries Prometheus to display state.
+

@@ -90,9 +90,9 @@ Each check asserts a **physical outcome**, not a command sent:
 | 3 | `goal_world` | `goal_check` | Drive-to-goal stops within 0.5 m of the goal |
 | 4 | `goal_world` | `goal_check` (diagonal) | Proportional steering reaches a goal off both axes |
 | 5 | `goal_with_obstacle_world` | `obstacle_check` | The avoidance logic fires: the robot meets the obstacle and turns away |
-| 6 | `fleet_world` | `fleet_check` | *In progress* — 3 robots reach their goals without colliding |
+| 6 | `fleet_world` | `fleet_check` | *In progress, non-blocking in CI* — 3 robots reach their goals without colliding |
 
-**Phases 1–5: 6 checks passing.** The robot "brains" are kept separate from the
+**Phases 1–5: 6 checks passing and gating CI.** Phase 6 runs and reports but doesn't fail the build while the robot geometry is tuned for the 3-robot run. The robot "brains" are kept separate from the
 examiners (brain drives, examiner judges), so a check can't pass just because the
 brain thinks it succeeded. The v3 brain also has a sensor-dropout failsafe: it
 stops if lidar or odometry goes stale for over 1 s.

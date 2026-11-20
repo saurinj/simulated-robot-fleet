@@ -34,10 +34,14 @@ Kubernetes and other non-multicast networks.
 
 Observability is the standard pull model: Prometheus scrapes the bridge's
 `:8001/metrics` every 15s (via the `bridge-metrics` Service); Grafana only
-talks to Prometheus, via PromQL. Four alert rules ship with Prometheus
-(BridgeDown, TelemetryDropping, TelemetryFailing, QueueBackingUp) —
-visible in the Prometheus UI under Status → Rules; wiring them to a pager
-via Alertmanager is the natural next step.
+talks to Prometheus, via PromQL. Five alert rules ship with Prometheus
+(BridgeDown, TelemetryDropping, TelemetryFailing, TelemetryStopped,
+QueueBackingUp) — visible in the Prometheus UI under Status → Rules.
+Firing alerts go to Alertmanager (`alertmanager.yaml`), which pushes them
+to a phone via an ntfy webhook, grouped by alert name, with resolved
+notifications. The webhook URL is read from a Kubernetes Secret
+(`url_file`), so it never lands in the repo. See `../METRICS.md` for the
+outage drill that verified the path end to end.
 
 ## Prerequisites
 
@@ -49,7 +53,7 @@ via Alertmanager is the natural next step.
 ## Runbook
 
 ```bash
-cd ~/Documents/simulated-robot-fleet
+cd simulated-robot-fleet   # repo root
 
 # 1. Cluster
 kind create cluster --config k8s/kind-cluster.yaml --name fleet
@@ -77,15 +81,16 @@ kubectl port-forward -n fleet svc/prometheus 9090:9090 &
 kubectl port-forward -n fleet svc/grafana 3000:3000 &
 # Prometheus UI: http://localhost:9090
 #   Status -> Targets: the fleet-bridge job should be UP (1/1).
-#   Status -> Rules: the four fleet-bridge alert rules.
+#   Status -> Rules: the five fleet-bridge alert rules.
 #   Graph: try  rate(fleet_bridge_telemetry_forwarded_total[1m])
 # Grafana: http://localhost:3000  (admin/admin)
 #   The "Fleet Bridge — Pipeline Health" dashboard is auto-provisioned.
 #
 # Demo the failure signals: scale Kafka to 0 and watch
 #   rate(fleet_bridge_telemetry_failed_total[1m]){stage="delivery_error"}
-# climb, then scale it back and watch recovery. That's the chaos test
-# from the compose days, now with graphs.
+# climb, TelemetryStopped and TelemetryFailing fire (phone push via
+# Alertmanager), then scale it back and watch recovery and the resolved
+# notifications.
 #   kubectl -n fleet scale statefulset kafka --replicas=0
 #   kubectl -n fleet scale statefulset kafka --replicas=1
 ```
